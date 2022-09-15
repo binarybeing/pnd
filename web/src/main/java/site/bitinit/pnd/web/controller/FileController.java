@@ -12,20 +12,26 @@ import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.annotation.*;
 import site.bitinit.pnd.web.Constants;
+import site.bitinit.pnd.web.config.FileType;
 import site.bitinit.pnd.web.controller.dto.MoveAndCopyFileDto;
 import site.bitinit.pnd.web.controller.dto.ResponseDto;
+import site.bitinit.pnd.web.controller.dto.VideoDto;
 import site.bitinit.pnd.web.dao.FileMapper;
 import site.bitinit.pnd.web.entity.File;
 import site.bitinit.pnd.web.exception.DataFormatException;
 import site.bitinit.pnd.web.service.FileService;
 import site.bitinit.pnd.web.service.ResourceService;
+import site.bitinit.pnd.web.util.FileUtils;
+import site.bitinit.pnd.web.util.StringUtils;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -47,6 +53,44 @@ public class FileController {
     @GetMapping("/file/parent/{parentId}")
     public ResponseEntity<ResponseDto> getFiles(@PathVariable Long parentId){
         return ResponseEntity.ok(fileService.findByParentId(parentId));
+    }
+
+    @GetMapping("/list_videos")
+    public ResponseEntity<ResponseDto> listVideos(){
+        ResponseDto parentId = fileService.findByParentId(0L);
+        List<File> files = (List<File>)parentId.getData();
+        List<VideoDto> res = new ArrayList<>();
+        files.sort((f1,f2)-> (int)(f2.getUpdateTime().getTime() - f1.getUpdateTime().getTime()));
+        for (File file : files) {
+            if (!FileUtils.equals(file.getType(), FileType.FOLDER) || !file.getFileName().startsWith("【") || !file.getFileName().endsWith("】")) {
+                continue;
+            }
+            String videoName = file.getFileName();
+            videoName = videoName.substring(1, videoName.length() - 1);
+            videoName = videoName.length() > 8 ? videoName.substring(0, 8) : videoName;
+            VideoDto videoDto = new VideoDto();
+            videoDto.setVedioName(videoName);
+            ResponseDto resource = fileService.findByParentId(file.getId());
+            List<File> videoResource = (List<File>)resource.getData();
+            if (videoResource.size() != 2) {
+                continue;
+            }
+            videoDto.setFileId(file.getId());
+            for (File r : videoResource) {
+                if (r.getFileName().endsWith(".jpg") || r.getFileName().endsWith(".png")) {
+                    videoDto.setCoverUrl(String.format("/v1/file/%s/download", r.getId()));
+                }
+                if (r.getFileName().endsWith(".mp4") || r.getFileName().endsWith(".mpg")
+                        || r.getFileName().endsWith(".mov") || r.getFileName().endsWith(".mpeg")
+                        || r.getFileName().endsWith(".rmvb")) {
+                    videoDto.setStreamUrl(String.format("/v1/file/%s/download", r.getId()));
+                }
+            }
+            if (!StringUtils.isBlank(videoDto.getStreamUrl())) {
+                res.add(videoDto);
+            }
+        }
+        return ResponseEntity.ok(ResponseDto.success(res));
     }
 
     @GetMapping("/file/{fileId}")
